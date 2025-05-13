@@ -1,21 +1,21 @@
 
 from flask import Flask, request, jsonify
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import os
 
 app = Flask(__name__)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'profiles.db')
+
+# Use the Render PostgreSQL URL (will be set as an environment variable)
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://app_user:password@host:port/profiles')
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL)
     return conn
 
 def init_database():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('DROP TABLE IF EXISTS profiles')  # Reset the table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS profiles (
             id TEXT PRIMARY KEY,
@@ -32,9 +32,9 @@ init_database()
 @app.route('/profiles', methods=['GET'])
 def get_profiles():
     conn = get_db_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute('SELECT id, name, phone, last_modified FROM profiles')
-    profiles = [dict(row) for row in cursor.fetchall()]
+    profiles = cursor.fetchall()
     conn.close()
     return jsonify(profiles)
 
@@ -50,12 +50,12 @@ def add_profile():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute('INSERT INTO profiles (id, name, phone, last_modified) VALUES (?, ?, ?, ?)',
-                      (id_, name, phone, last_modified))
+        cursor.execute('INSERT INTO profiles (id, name, phone, last_modified) VALUES (%s, %s, %s, %s)',
+                       (id_, name, phone, last_modified))
         conn.commit()
         conn.close()
         return jsonify({'message': 'Profile added'}), 201
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         conn.close()
         return jsonify({'error': 'Profile ID already exists'}), 400
 
@@ -69,8 +69,8 @@ def update_profile(id):
         return jsonify({'error': 'Missing fields'}), 400
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('UPDATE profiles SET name = ?, phone = ?, last_modified = ? WHERE id = ?',
-                  (name, phone, last_modified, id))
+    cursor.execute('UPDATE profiles SET name = %s, phone = %s, last_modified = %s WHERE id = %s',
+                   (name, phone, last_modified, id))
     if cursor.rowcount == 0:
         conn.close()
         return jsonify({'error': 'Profile not found'}), 404
@@ -82,7 +82,7 @@ def update_profile(id):
 def delete_profile(id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM profiles WHERE id = ?', (id,))
+    cursor.execute('DELETE FROM profiles WHERE id = %s', (id,))
     if cursor.rowcount == 0:
         conn.close()
         return jsonify({'error': 'Profile not found'}), 404
