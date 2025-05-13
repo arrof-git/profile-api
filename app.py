@@ -3,15 +3,34 @@ from flask import Flask, request, jsonify
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 
-# Use the Render PostgreSQL URL (will be set as an environment variable)
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://app_user:password@host:port/profiles')
+# Get DATABASE_URL from environment, with a fallback for local testing
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    # Fallback for local testing (replace with your local PostgreSQL URL if needed)
+    DATABASE_URL = "postgresql://app_user:password@localhost:5432/profiles"
+    print("Warning: Using fallback DATABASE_URL for local testing. Set DATABASE_URL for production.")
+
+# Parse the URL to extract connection parameters
+url = urlparse(DATABASE_URL)
+db_params = {
+    'dbname': url.path[1:],  # Remove leading slash
+    'user': url.username,
+    'password': url.password,
+    'host': url.hostname,
+    'port': url.port
+}
 
 def get_db_connection():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    try:
+        conn = psycopg2.connect(**db_params)
+        return conn
+    except psycopg2.Error as e:
+        print(f"Database connection failed: {e}")
+        raise
 
 def init_database():
     conn = get_db_connection()
